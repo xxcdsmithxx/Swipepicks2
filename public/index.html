@@ -70,7 +70,22 @@ body.overlay-open{overflow:hidden}
 .overlay-close{width:39px;height:39px}
 @media(max-width:380px){.overlay-app-icon{width:48px;height:48px}.overlay-header .record>div{min-width:43px}.record b{font-size:16px}.overlay-close{width:34px;height:34px}}
 </style></head><body><main><header class="hero"><img src="./icons/icon-192.png" alt="Swipe Picks app icon"><div class="record" aria-label="Recorded results"><div><b class="hits-count" id="homeHits">0</b><small>Hits</small></div><div><b class="misses-count" id="homeMisses">0</b><small>Misses</small></div></div></header><nav class="tabs"><button onclick="tab('review')">Analyze</button><button onclick="tab('sheet')">Bet Sheet</button><button onclick="tab('bankroll')">Units</button><button onclick="tab('reports')">Reports</button></nav>
-<section id="review"><div class="panel"><div class="eyebrow">Choose your leagues</div><h2>Analyze all sports</h2><button type="button" class="sports-trigger" id="sportsTrigger" onclick="toggleSportsMenu()" aria-expanded="false" aria-controls="sportsMenu">🏆 <span id="sportSummary">All Sports</span> <span id="sportChevron">⌄</span></button><div id="sportsMenu" class="sports-menu hidden"><label class="sport-check"><input type="checkbox" id="allSportsCheck" onchange="toggleAll(this.checked)"> 🌎 All Sports</label><div class="sports" id="sports"></div><button type="button" class="primary" onclick="toggleSportsMenu(false)">Done</button></div><p class="small" id="sportCount"></p><label for="market">Market preference</label><select id="market"><option value="all">All available markets</option><option value="h2h">Moneyline / winner</option><option value="spreads">Spreads / handicaps</option><option value="totals">Totals</option></select><p class="small">Currently available: moneyline, spreads and totals. Player props require a separate event-level integration and are not included in this release.</p><button id="analyze" class="primary" onclick="analyze()">⚡ Analyze selected sports</button><p id="status" role="status" class="small"></p><button id="resumeCards" type="button" class="resume-cards hidden" onclick="openOverlay()">🃏 Resume swipe cards</button></div><div id="pickOverlay" class="pick-overlay hidden" role="dialog" aria-modal="true" aria-label="Swipe picks">
+<section id="review"><div class="panel"><div class="eyebrow">Choose your leagues</div><h2>Analyze all sports</h2><button type="button" class="sports-trigger" id="sportsTrigger" onclick="toggleSportsMenu()" aria-expanded="false" aria-controls="sportsMenu">🏆 <span id="sportSummary">All Sports</span> <span id="sportChevron">⌄</span></button><div id="sportsMenu" class="sports-menu hidden"><label class="sport-check"><input type="checkbox" id="allSportsCheck" onchange="toggleAll(this.checked)"> 🌎 All Sports</label><div class="sports" id="sports"></div><button type="button" class="primary" onclick="toggleSportsMenu(false)">Done</button></div><p class="small" id="sportCount"></p>
+<div class="eyebrow" style="margin-top:20px">Choose betting markets</div>
+<div class="market-options" style="display:grid;gap:10px;margin:12px 0">
+  <label class="sport-check">
+    <input type="checkbox" class="market-choice" value="h2h" checked>
+    Moneyline
+  </label>
+  <label class="sport-check">
+    <input type="checkbox" class="market-choice" value="spreads">
+    Spreads
+  </label>
+  <label class="sport-check">
+    <input type="checkbox" class="market-choice" value="totals">
+    Totals
+  </label>
+</div><p class="small">Currently available: moneyline, spreads and totals. Player props require a separate event-level integration and are not included in this release.</p><button id="analyze" class="primary" onclick="analyze()">⚡ Analyze selected sports</button><p id="status" role="status" class="small"></p><button id="resumeCards" type="button" class="resume-cards hidden" onclick="openOverlay()">🃏 Resume swipe cards</button></div><div id="pickOverlay" class="pick-overlay hidden" role="dialog" aria-modal="true" aria-label="Swipe picks">
 <div class="overlay-shell"><header class="overlay-header"><img class="overlay-app-icon" src="./icons/icon-192.png" alt="Swipe Picks app icon"><div class="record" aria-label="Recorded results"><div><b class="hits-count" id="overlayHits">0</b><small>Hits</small></div><div><b class="misses-count" id="overlayMisses">0</b><small>Misses</small></div></div><button class="overlay-close" type="button" onclick="closeOverlay()" aria-label="Close pick cards">✕</button></header>
 <div class="hidden" aria-hidden="true"><b id="progress"></b><span id="remaining"></span><div id="progressbar"></div></div><div id="card"></div><div id="explanationModal" class="explanation-modal hidden" role="dialog" aria-modal="true" aria-labelledby="explanationHeading" onclick="if(event.target===this)closeExplanation()"><div class="explanation-panel"><div class="explanation-head"><h2 id="explanationHeading">🧠 Pick Explanation</h2><button id="closeExplanation" type="button" aria-label="Close explanation" onclick="closeExplanation()">✕</button></div><h3 id="explanationTitle"></h3><p id="explanationReason"></p><div class="explanation-note" id="explanationProb"></div><button class="explanation-dismiss" type="button" onclick="closeExplanation()">Close</button></div></div>
 <p class="small overlay-help">← Pass &nbsp; → Parlay &nbsp; ↑ Straight</p></div></div></section>
@@ -81,50 +96,56 @@ body.overlay-open{overflow:hidden}
 const KEY='swipe_picks_all_sports_v1';const leagues=['NBA','NFL','MLB','NHL','NCAAF','NCAAB','WNBA','Soccer','Tennis','UFC'];const emojis=['🏀','🏈','⚾','🏒','🏟️','🎓','🏀','⚽','🎾','🥊'];const empty=()=>({slates:{},selected:leagues,bank:500,unitPercent:1});let db;try{db={...empty(),...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{db=empty()}let slateKey=null,expanded=false;const save=()=>localStorage.setItem(KEY,JSON.stringify(db));const fmt=o=>o>0?'+'+o:String(o);const money=n=>'$'+(Number(n)||0).toFixed(2);const dec=o=>o>0?1+o/100:1+100/-o;const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'});const slate=()=>db.slates[slateKey];function tab(id){closeOverlay();for(const s of ['review','sheet','bankroll','reports'])document.getElementById(s).classList.toggle('hidden',s!==id);if(id==='sheet')renderSheet();if(id==='reports')renderReports();if(id==='bankroll')renderUnits()}function renderSports(){const all=db.selected.length===leagues.length;document.getElementById('sports').innerHTML=leagues.map((sport,i)=>`<label class="sport-check"><input type="checkbox" ${db.selected.includes(sport)?'checked':''} onchange="toggleSport('${sport}')"><span>${emojis[i]} ${sport}</span></label>`).join('');document.getElementById('allSportsCheck').checked=all;document.getElementById('sportSummary').textContent=all?'All Sports (10 selected)':db.selected.length===0?'Select sports':db.selected.length<=3?db.selected.join(', '):db.selected.length+' sports selected';document.getElementById('sportCount').textContent=db.selected.length+' of '+leagues.length+' sports selected'}function toggleSport(sport){db.selected=db.selected.includes(sport)?db.selected.filter(x=>x!==sport):[...db.selected,sport];save();renderSports()}function toggleAll(checked){db.selected=checked?[...leagues]:[];save();renderSports()}function toggleSportsMenu(force){const el=document.getElementById('sportsMenu');const open=typeof force==='boolean'?force:el.classList.contains('hidden');el.classList.toggle('hidden',!open);document.getElementById('sportsTrigger').setAttribute('aria-expanded',String(open));document.getElementById('sportChevron').textContent=open?'⌃':'⌄'}
 
 async function analyze(){
-  if(!db.selected.length){
-    document.getElementById('status').textContent='Select at least one sport.';
+  const button=document.getElementById('analyze');
+  const status=document.getElementById('status');
+  const markets=[...document.querySelectorAll('.market-choice:checked')]
+    .map(x=>x.value);
+
+  if(!db.selected.length || !markets.length){
+    status.textContent='Select at least one sport and one market.';
     return;
   }
 
-  const button=document.getElementById('analyze');
-  const status=document.getElementById('status');
   button.disabled=true;
-  button.textContent='Checking available odds…';
+  button.textContent='Loading markets…';
 
   try{
-    const market=document.getElementById('market').value;
-    const requests=db.selected.map(async sport=>{
-      const ctrl=new AbortController();
-      const timeout=setTimeout(()=>ctrl.abort(),20000);
+    const combinations=db.selected.flatMap(sport=>
+      markets.map(market=>({sport,market}))
+    );
 
-      try{
-        const url='/api/picks?sports='+
-          encodeURIComponent(sport)+
-          '&markets='+encodeURIComponent(market);
+    const results=await Promise.all(
+      combinations.map(async ({sport,market})=>{
+        const ctrl=new AbortController();
+        const timeout=setTimeout(()=>ctrl.abort(),25000);
 
-        const response=await fetch(url,{
-          signal:ctrl.signal,
-          cache:'no-store'
-        });
+        try{
+          const url='/api/picks?sports='+
+            encodeURIComponent(sport)+
+            '&markets='+encodeURIComponent(market);
 
-        const data=await response.json();
-        if(!response.ok)throw Error(data.message||'HTTP '+response.status);
+          const response=await fetch(url,{
+            cache:'no-store',
+            signal:ctrl.signal
+          });
 
-        return {
-          sport,
-          picks:Array.isArray(data.picks)?data.picks:[],
-          error:null
-        };
-      }catch(error){
-        return {sport,picks:[],error:error.message};
-      }finally{
-        clearTimeout(timeout);
-      }
-    });
+          const data=await response.json();
 
-    status.textContent='Loading cached odds for selected sports…';
+          if(!response.ok)throw Error(data.message||'API error');
 
-    const results=await Promise.all(requests);
+          return {
+            sport,market,
+            picks:Array.isArray(data.picks)?data.picks:[],
+            error:null
+          };
+        }catch(e){
+          return {sport,market,picks:[],error:e.message};
+        }finally{
+          clearTimeout(timeout);
+        }
+      })
+    );
+
     const unique=new Map();
 
     for(const result of results){
@@ -136,17 +157,15 @@ async function analyze(){
     }
 
     const picks=[...unique.values()]
-      .filter(p=>!p.commenceTime||Date.parse(p.commenceTime)>Date.now())
-      .sort((a,b)=>Date.parse(a.commenceTime||0)-Date.parse(b.commenceTime||0))
+      .filter(p=>p.commenceTime &&
+        Date.parse(p.commenceTime)>Date.now())
+      .sort((a,b)=>
+        Date.parse(a.commenceTime)-Date.parse(b.commenceTime))
       .slice(0,100);
 
-    const failed=results.filter(r=>r.error);
-    const missing=results.filter(r=>!r.error&&!r.picks.length);
-
     if(!picks.length){
-      status.textContent='No cached DraftKings markets available for this selection. '+
-        (failed.length?'Errors: '+failed.map(r=>r.sport).join(', ')+'. ':'')+
-        'Other sports or markets may still need refreshing.';
+      status.textContent='No cached DraftKings odds for those markets yet. '+
+        'The selected markets may need refreshing.';
       return;
     }
 
@@ -168,19 +187,22 @@ async function analyze(){
     renderCard();
     openOverlay();
 
-    status.textContent='Loaded '+picks.length+' DraftKings selections from '+
-      new Set(picks.map(p=>p.sport)).size+' sports. '+
-      (missing.length?missing.length+' selected sports have no cached markets. ':'')+
-      (failed.length?failed.length+' requests failed. ':'')+
-      'Unrated selections are not verified betting edges.';
+    const missing=results.filter(r=>!r.picks.length).length;
+    const errors=results.filter(r=>r.error).length;
 
-  }catch(error){
-    status.textContent='Unable to analyze: '+error.message;
+    status.textContent='Loaded '+picks.length+
+      ' DraftKings selections across '+markets.length+
+      ' market types. '+missing+' combinations unavailable. '+
+      errors+' request errors. Unrated picks are not verified edges.';
+
+  }catch(e){
+    status.textContent='Unable to analyze: '+e.message;
   }finally{
     button.disabled=false;
     button.textContent='⚡ Analyze selected sports';
   }
 }
+
 function openOverlay(){document.getElementById('resumeCards').classList.remove('hidden');const overlay=document.getElementById('pickOverlay');overlay.classList.remove('hidden');document.body.classList.add('overlay-open');document.querySelector('.overlay-close').focus()}
 function closeOverlay(){closeExplanation();document.getElementById('pickOverlay').classList.add('hidden');document.body.classList.remove('overlay-open')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!document.getElementById('explanationModal').classList.contains('hidden'))closeExplanation();else if(!document.getElementById('pickOverlay').classList.contains('hidden'))closeOverlay()}});
