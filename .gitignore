@@ -47,3 +47,11 @@ node_modules/
 *.log
 *.pem
 *.key
+.env
+.env.*
+!.env.example
+node_modules/
+.netlify/
+*.log
+*.pem
+*.key
