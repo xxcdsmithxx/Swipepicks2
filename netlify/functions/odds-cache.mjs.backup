@@ -1,0 +1,8 @@
+import { getStore } from "@netlify/blobs";
+const store = () => getStore("swipepicks-odds-cache");
+export async function readOdds(key) {
+  return await store().get(key, { type: "json", consistency: "strong" });
+}
+export async function saveOdds(key, data) {
+  await store().setJSON(key, { savedAt: Date.now(), data });
+}
