@@ -156,13 +156,76 @@ async function analyze(){
       }
     }
 
-    const picks=[...unique.values()]
-      .filter(p=>p.commenceTime &&
-        Date.parse(p.commenceTime)>Date.now())
-      .sort((a,b)=>
-        Date.parse(a.commenceTime)-Date.parse(b.commenceTime))
-      .slice(0,100);
 
+    // One comparison per event, market, and compatible line.
+    const groups=new Map();
+
+    for(const p of unique.values()){
+      if(!p.eventId || !p.marketKey ||
+         !p.commenceTime ||
+         Date.parse(p.commenceTime)<=Date.now()) continue;
+
+      const line=p.marketKey==='h2h'?'winner':
+        p.marketKey==='spreads'?String(Math.abs(Number(p.point))):
+        String(p.point);
+
+      const key=p.eventId+'|'+p.marketKey+'|'+line;
+
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(p);
+    }
+
+    const picks=[];
+
+    for(const sides of groups.values()){
+      const first=sides[0];
+      const market=first.marketKey;
+
+      const pair=sides.filter((p,i,a)=>
+        a.findIndex(x=>x.selection===p.selection &&
+          x.point===p.point)===i
+      );
+
+      if(pair.length!==2)continue;
+
+      const [a,b]=pair;
+
+      if(market==='totals'){
+        if(!['Over','Under'].includes(a.selection) ||
+           !['Over','Under'].includes(b.selection) ||
+           a.selection===b.selection ||
+           a.point!==b.point)continue;
+      }
+
+      if(market==='spreads'){
+        if(a.selection===b.selection ||
+           Number(a.point)!==-Number(b.point))continue;
+      }
+
+      if(market==='h2h' && a.selection===b.selection)continue;
+
+      picks.push({
+        ...a,
+        comparisonSides:[a,b],
+        chosenSide:null,
+        market:market==='h2h'?'Moneyline comparison':
+          market==='spreads'?'Spread comparison':
+          'Total comparison',
+        modelValidated:false,
+        pickRating:null,
+        trueProbability:null,
+        estimatedEV:null,
+        recommendation:'No verified edge',
+        reason:'Both opposing DraftKings outcomes are shown. '+
+          'The app has not established an independent true '+
+          'probability or positive expected value.'
+      });
+    }
+
+    picks.sort((a,b)=>
+      Date.parse(a.commenceTime)-Date.parse(b.commenceTime));
+
+    picks.splice(100);
     if(!picks.length){
       status.textContent='No cached DraftKings odds for those markets yet. '+
         'The selected markets may need refreshing.';
@@ -206,7 +269,106 @@ async function analyze(){
 function openOverlay(){document.getElementById('resumeCards').classList.remove('hidden');const overlay=document.getElementById('pickOverlay');overlay.classList.remove('hidden');document.body.classList.add('overlay-open');document.querySelector('.overlay-close').focus()}
 function closeOverlay(){closeExplanation();document.getElementById('pickOverlay').classList.add('hidden');document.body.classList.remove('overlay-open')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!document.getElementById('explanationModal').classList.contains('hidden'))closeExplanation();else if(!document.getElementById('pickOverlay').classList.contains('hidden'))closeOverlay()}});
-function currentIndex(){const s=slate();return s?s.picks.findIndex((p,i)=>!s.decisions[i]):-1}function renderCard(){updateRecord();const s=slate(),c=document.getElementById('card'),i=currentIndex(),done=s?Object.keys(s.decisions).length:0,total=s?s.picks.length:0;document.getElementById('progress').textContent=`${done} / ${total} reviewed`;document.getElementById('remaining').textContent=s?total-done+' remaining':'No slate loaded';document.getElementById('progressbar').style.width=(total?100*done/total:0)+'%';if(!s){c.innerHTML='<div class="empty">Select your sports and tap Analyze to begin.</div>';return}if(i<0){c.innerHTML='<div class="panel empty">All picks reviewed! Open your Bet Sheet.</div>';return}const p=s.picks[i];const imp=Number(p.impliedProbability);c.innerHTML=`<article class="pick" id="activePick"><div class="swipe-stamp" id="swipeStamp"></div><div class="row"><b class="eyebrow">${safe(p.sport)} · ${safe(p.league)}</b><span class="tag">${i+1} of ${total}</span></div><p>${safe(p.matchup)}</p><h2>${safe(p.market)}</h2><div class="price">${fmt(p.odds)}</div><div class="stats"><div class="stat"><small>Pick Rating /100</small><b>${p.modelValidated===true&&Number.isFinite(Number(p.pickRating))?Math.max(0,Math.min(100,Number(p.pickRating))).toFixed(0):'N/A'}</b></div><div class="stat"><small>Recommendation</small><b>${p.modelValidated===true?safe(p.recommendation||'Review'):'Unrated · Review'}</b></div></div><p class="small">DraftKings · ${p.commenceTime?new Date(p.commenceTime).toLocaleString():''}</p><p class="small swipe-help">← Pass · → Parlay · ↑ Straight</p><button type="button" class="explanation-btn" onclick="openExplanation()">ⓘ View Explanation</button></article>`;wireSwipe(document.getElementById('activePick'))}function openExplanation(){const s=slate(),i=currentIndex();if(!s||i<0)return;const p=s.picks[i],imp=Number(p.impliedProbability);const modal=document.getElementById('explanationModal');document.getElementById('explanationTitle').textContent=p.market||'Pick Explanation';document.getElementById('explanationReason').textContent=(p.reason||'No independent model supplied.')+(p.analysisSources?.length?'\n\nSources:\n'+p.analysisSources.join('\n'):'');document.getElementById('explanationProb').textContent=p.modelValidated===true?'Rating reflects research confidence, not true win probability. No positive expected value is established.':'Insufficient verified evidence for a rating. This pick remains unrated.';modal.classList.remove('hidden');document.getElementById('closeExplanation').focus()}
+function currentIndex(){const s=slate();return s?s.picks.findIndex((p,i)=>!s.decisions[i]):-1}
+function selectComparisonSide(index){
+  const s=slate(),i=currentIndex();
+  if(!s || i<0)return;
+
+  const p=s.picks[i];
+  const side=p.comparisonSides?.[index];
+  if(!side)return;
+
+  Object.assign(p,{
+    selection:side.selection,
+    point:side.point,
+    odds:side.odds,
+    id:side.id,
+    chosenSide:index,
+    impliedProbability:side.impliedProbability
+  });
+
+  save();
+  renderCard();
+}
+
+function renderCard(){
+  updateRecord();
+
+  const s=slate();
+  const c=document.getElementById('card');
+  const i=currentIndex();
+  const total=s?s.picks.length:0;
+  const done=s?Object.keys(s.decisions).length:0;
+
+  document.getElementById('progress').textContent=
+    done+' / '+total+' reviewed';
+
+  document.getElementById('remaining').textContent=
+    s?(total-done)+' remaining':'No slate loaded';
+
+  document.getElementById('progressbar').style.width=
+    (total?100*done/total:0)+'%';
+
+  if(!s){
+    c.innerHTML='<div class="empty">Select sports and Analyze.</div>';
+    return;
+  }
+
+  if(i<0){
+    c.innerHTML='<div class="panel empty">All matchups reviewed!</div>';
+    return;
+  }
+
+  const p=s.picks[i];
+  const sides=p.comparisonSides||[];
+
+  const sideHtml=sides.map((side,index)=>{
+    const selected=p.chosenSide===index;
+    const prob=(Number(side.impliedProbability)*100).toFixed(1);
+
+    return '<button type="button" '+
+      'onclick="selectComparisonSide('+index+')" '+
+      'style="width:100%;margin:6px 0;padding:15px;'+
+      'border:2px solid '+(selected?'#ff9a48':'#43546a')+'">'+
+      '<strong>'+safe(side.selection)+
+      (side.point===null?'':' '+safe(String(side.point)))+
+      '</strong> · '+fmt(side.odds)+
+      '<div class="small">Break-even: '+prob+'%</div>'+
+      (selected?'<div>✓ Selected for manual review</div>':'')+
+      '</button>';
+  }).join('');
+
+  c.innerHTML=
+    '<article class="pick" id="activePick">'+
+    '<div class="swipe-stamp" id="swipeStamp"></div>'+
+    '<div class="row"><b class="eyebrow">'+safe(p.sport)+
+    ' · '+safe(p.league)+'</b><span class="tag">'+
+    (i+1)+' of '+total+'</span></div>'+
+    '<p>'+safe(p.matchup)+'</p>'+
+    '<h2>'+safe(p.market)+'</h2>'+
+    sideHtml+
+    '<div class="stats"><div class="stat">'+
+    '<small>True probability / EV</small><b>Not established</b>'+
+    '</div><div class="stat">'+
+    '<small>Model recommendation</small><b>No verified edge</b>'+
+    '</div></div>'+
+    '<p class="small">Choose a side only for manual review. '+
+    'Neither side is a verified positive-EV recommendation.</p>'+
+    '<button type="button" onclick="decide(\'pass\')">'+
+    'Pass this matchup</button>'+
+    '<button type="button" class="explanation-btn" '+
+    'onclick="openExplanation()">ⓘ View Explanation</button>'+
+    (p.chosenSide!==null?
+      '<p class="small swipe-help">← Pass · → Parlay · ↑ Straight '+
+      '(manual choice)</p>':
+      '<p class="small">Select a side to enable swiping.</p>')+
+    '</article>';
+
+  if(p.chosenSide!==null){
+    wireSwipe(document.getElementById('activePick'));
+  }
+}
+function openExplanation(){const s=slate(),i=currentIndex();if(!s||i<0)return;const p=s.picks[i],imp=Number(p.impliedProbability);const modal=document.getElementById('explanationModal');document.getElementById('explanationTitle').textContent=p.market||'Pick Explanation';document.getElementById('explanationReason').textContent=(p.reason||'No independent model supplied.')+(p.analysisSources?.length?'\n\nSources:\n'+p.analysisSources.join('\n'):'');document.getElementById('explanationProb').textContent=p.modelValidated===true?'Rating reflects research confidence, not true win probability. No positive expected value is established.':'Insufficient verified evidence for a rating. This pick remains unrated.';modal.classList.remove('hidden');document.getElementById('closeExplanation').focus()}
 function closeExplanation(){document.getElementById('explanationModal').classList.add('hidden')}
 function decide(which){closeExplanation();const s=slate(),i=currentIndex();if(!s||i<0)return;s.decisions[i]=which;save();expanded=false;renderCard()}
 function wireSwipe(el){
