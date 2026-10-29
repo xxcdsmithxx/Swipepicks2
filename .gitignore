@@ -27,3 +27,15 @@ node_modules/
 *.log
 *.pem
 *.key
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*
+*secrets*
+.netlify/
+node_modules/
+*.log
