@@ -79,7 +79,108 @@ body.overlay-open{overflow:hidden}
 <section id="reports" class="hidden"><div class="panel"><h2>Reports</h2><label>Saved slate</label><select id="reportDate" onchange="renderReports()"></select><div id="reportBody"></div><button class="primary" onclick="exportCSV()">Export current slate (CSV)</button><p class="small">Outcomes are entered manually; no automated grading or profit claims.</p></div></section>
 <p class="small">Odds from The Odds API where available. DraftKings prices are informational, may change, and are not a guarantee of availability. No wagers are placed through Swipe Picks. Keep a backup of your existing app's saved data before replacing its files.</p></main><script>
 const KEY='swipe_picks_all_sports_v1';const leagues=['NBA','NFL','MLB','NHL','NCAAF','NCAAB','WNBA','Soccer','Tennis','UFC'];const emojis=['🏀','🏈','⚾','🏒','🏟️','🎓','🏀','⚽','🎾','🥊'];const empty=()=>({slates:{},selected:leagues,bank:500,unitPercent:1});let db;try{db={...empty(),...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{db=empty()}let slateKey=null,expanded=false;const save=()=>localStorage.setItem(KEY,JSON.stringify(db));const fmt=o=>o>0?'+'+o:String(o);const money=n=>'$'+(Number(n)||0).toFixed(2);const dec=o=>o>0?1+o/100:1+100/-o;const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'});const slate=()=>db.slates[slateKey];function tab(id){closeOverlay();for(const s of ['review','sheet','bankroll','reports'])document.getElementById(s).classList.toggle('hidden',s!==id);if(id==='sheet')renderSheet();if(id==='reports')renderReports();if(id==='bankroll')renderUnits()}function renderSports(){const all=db.selected.length===leagues.length;document.getElementById('sports').innerHTML=leagues.map((sport,i)=>`<label class="sport-check"><input type="checkbox" ${db.selected.includes(sport)?'checked':''} onchange="toggleSport('${sport}')"><span>${emojis[i]} ${sport}</span></label>`).join('');document.getElementById('allSportsCheck').checked=all;document.getElementById('sportSummary').textContent=all?'All Sports (10 selected)':db.selected.length===0?'Select sports':db.selected.length<=3?db.selected.join(', '):db.selected.length+' sports selected';document.getElementById('sportCount').textContent=db.selected.length+' of '+leagues.length+' sports selected'}function toggleSport(sport){db.selected=db.selected.includes(sport)?db.selected.filter(x=>x!==sport):[...db.selected,sport];save();renderSports()}function toggleAll(checked){db.selected=checked?[...leagues]:[];save();renderSports()}function toggleSportsMenu(force){const el=document.getElementById('sportsMenu');const open=typeof force==='boolean'?force:el.classList.contains('hidden');el.classList.toggle('hidden',!open);document.getElementById('sportsTrigger').setAttribute('aria-expanded',String(open));document.getElementById('sportChevron').textContent=open?'⌃':'⌄'}
-async function analyze(){if(!db.selected.length){document.getElementById('status').textContent='Select at least one sport.';return}const b=document.getElementById('analyze'),status=document.getElementById('status');b.disabled=true;b.textContent='Checking available odds…';status.textContent='Retrieving DraftKings odds across selected leagues…';try{const ctrl=new AbortController(),timeout=setTimeout(()=>ctrl.abort(),55000);let res;try{res=await fetch('/api/picks?sports='+encodeURIComponent(db.selected.join(','))+'&markets='+encodeURIComponent(document.getElementById('market').value),{signal:ctrl.signal,cache:'no-store'})}finally{clearTimeout(timeout)}const data=await res.json();if(!res.ok)throw Error(data.message||'Backend unavailable');if(!Array.isArray(data.picks)||!data.picks.length){status.textContent='No upcoming DraftKings markets returned. '+(data.unavailable||data.errors?.join('; ')||'Try fewer leagues or another time.');return}const picks=data.picks.slice(0,30);const k=today()+'-'+Date.now();db.slates[k]={date:today(),picks,decisions:{},outcomes:{},parlayStake:'',straightStake:'',created:new Date().toISOString()};slateKey=k;save();expanded=false;renderCard();openOverlay();status.textContent=`Loaded ${picks.length} available selections from ${new Set(picks.map(p=>p.sport)).size} sports. ${data.errors?.length?data.errors.length+' leagues returned errors. ':''}AI research is best-effort; ratings represent evidence confidence, not validated positive-EV bets.`}catch(e){status.textContent='Unable to analyze: '+(e.name==='AbortError'?'request timed out':e.message)}finally{b.disabled=false;b.textContent='⚡ Analyze selected sports'}}
+
+async function analyze(){
+  if(!db.selected.length){
+    document.getElementById('status').textContent='Select at least one sport.';
+    return;
+  }
+
+  const button=document.getElementById('analyze');
+  const status=document.getElementById('status');
+  button.disabled=true;
+  button.textContent='Checking available odds…';
+
+  try{
+    const market=document.getElementById('market').value;
+    const requests=db.selected.map(async sport=>{
+      const ctrl=new AbortController();
+      const timeout=setTimeout(()=>ctrl.abort(),20000);
+
+      try{
+        const url='/api/picks?sports='+
+          encodeURIComponent(sport)+
+          '&markets='+encodeURIComponent(market);
+
+        const response=await fetch(url,{
+          signal:ctrl.signal,
+          cache:'no-store'
+        });
+
+        const data=await response.json();
+        if(!response.ok)throw Error(data.message||'HTTP '+response.status);
+
+        return {
+          sport,
+          picks:Array.isArray(data.picks)?data.picks:[],
+          error:null
+        };
+      }catch(error){
+        return {sport,picks:[],error:error.message};
+      }finally{
+        clearTimeout(timeout);
+      }
+    });
+
+    status.textContent='Loading cached odds for selected sports…';
+
+    const results=await Promise.all(requests);
+    const unique=new Map();
+
+    for(const result of results){
+      for(const pick of result.picks){
+        if(pick.id && pick.sportsbook==='DraftKings'){
+          unique.set(pick.id,pick);
+        }
+      }
+    }
+
+    const picks=[...unique.values()]
+      .filter(p=>!p.commenceTime||Date.parse(p.commenceTime)>Date.now())
+      .sort((a,b)=>Date.parse(a.commenceTime||0)-Date.parse(b.commenceTime||0))
+      .slice(0,100);
+
+    const failed=results.filter(r=>r.error);
+    const missing=results.filter(r=>!r.error&&!r.picks.length);
+
+    if(!picks.length){
+      status.textContent='No cached DraftKings markets available for this selection. '+
+        (failed.length?'Errors: '+failed.map(r=>r.sport).join(', ')+'. ':'')+
+        'Other sports or markets may still need refreshing.';
+      return;
+    }
+
+    const k=today()+'-'+Date.now();
+
+    db.slates[k]={
+      date:today(),
+      picks,
+      decisions:{},
+      outcomes:{},
+      parlayStake:'',
+      straightStake:'',
+      created:new Date().toISOString()
+    };
+
+    slateKey=k;
+    save();
+    expanded=false;
+    renderCard();
+    openOverlay();
+
+    status.textContent='Loaded '+picks.length+' DraftKings selections from '+
+      new Set(picks.map(p=>p.sport)).size+' sports. '+
+      (missing.length?missing.length+' selected sports have no cached markets. ':'')+
+      (failed.length?failed.length+' requests failed. ':'')+
+      'Unrated selections are not verified betting edges.';
+
+  }catch(error){
+    status.textContent='Unable to analyze: '+error.message;
+  }finally{
+    button.disabled=false;
+    button.textContent='⚡ Analyze selected sports';
+  }
+}
 function openOverlay(){document.getElementById('resumeCards').classList.remove('hidden');const overlay=document.getElementById('pickOverlay');overlay.classList.remove('hidden');document.body.classList.add('overlay-open');document.querySelector('.overlay-close').focus()}
 function closeOverlay(){closeExplanation();document.getElementById('pickOverlay').classList.add('hidden');document.body.classList.remove('overlay-open')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!document.getElementById('explanationModal').classList.contains('hidden'))closeExplanation();else if(!document.getElementById('pickOverlay').classList.contains('hidden'))closeOverlay()}});

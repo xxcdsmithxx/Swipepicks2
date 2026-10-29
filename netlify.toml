@@ -7,3 +7,6 @@
   status = 200
 
 [functions]
+
+[functions."refresh-odds"]
+  schedule = "0 */3 * * *"
