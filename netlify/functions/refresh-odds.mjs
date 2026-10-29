@@ -29,7 +29,8 @@ export async function handler(){
       queryStringParameters:{
         sports:sport,
         markets:market,
-        refresh:"1"
+        refresh:"1",
+        noAI:"1"
       }
     });
 
